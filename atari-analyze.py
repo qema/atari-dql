@@ -14,6 +14,7 @@ with open("atari-log.txt", "r") as f:
         scores.append(reward)
 
 block_size = 100
+print(len(scores))
 for i in range(len(scores)//block_size):
     print(np.mean(scores[block_size*i:block_size*(i+1)]))
 
