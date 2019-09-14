@@ -5,30 +5,12 @@ import torch.nn.functional as F
 import gym
 import os
 import random
+import argparse
 from settings import *
 
-class AtariEnvWrapper(gym.Wrapper):
-    def __init__(self, env=None):
-        super(AtariEnvWrapper, self).__init__(env)
-        self.lives = 0
-        self.was_real_done = True
-
-    def step(self, action):
-        obs, reward, done, info = self.env.step(action)
-        self.was_real_done = done
-        lives = self.env.unwrapped.ale.lives()
-        if lives < self.lives and lives > 0:
-            done = True
-        self.lives = lives
-        return obs, reward, done, info
-
-    def reset(self):
-        if self.was_real_done:
-            obs = self.env.reset()
-        else:
-            obs, _, _, _ = self.env.step(0)
-        self.lives = self.env.unwrapped.ale.lives()
-        return obs
+parser = argparse.ArgumentParser(description="Train atari nn with RL")
+parser.add_argument("--eval", action="store_true")
+parser.add_argument("--render", action="store_true")
 
 get_device_cache = None
 def get_device():
@@ -126,66 +108,26 @@ class QModel(nn.Module):
     def __init__(self, env):
         super(QModel, self).__init__()
         self.conv1 = nn.Conv2d(num_recent_states, 32, 8, stride=4)
-        self.pool1 = nn.MaxPool2d(2)
-        self.relu1 = nn.ReLU()
         self.conv2 = nn.Conv2d(32, 64, 4, stride=2)
-        self.pool2 = nn.MaxPool2d(2)
-        self.relu2 = nn.ReLU()
         self.conv3 = nn.Conv2d(64, 64, 3, stride=1)
-        self.pool3 = nn.MaxPool2d(2)
-        self.relu3 = nn.ReLU()
         self.linear1 = nn.Linear(3136, 512)
-        #self.linear1 = nn.Linear(128, 512)
-        self.relu4 = nn.ReLU()
         self.linear2 = nn.Linear(512, env.action_space.n)
-        self.relu5 = nn.ReLU()
-        self.linear3 = nn.Linear(256, 256)
-        self.relu6 = nn.ReLU()
-        self.linear4 = nn.Linear(256, env.action_space.n)
-
-#    def forward(self, state):
-#        #state = state.view(state.shape[0], -1)
-#        #out = torch.cat((state, action), dim=1)
-#        out = self.linear1(state)
-#        out = self.relu1(out)
-#        out = self.linear2(out)
-#        out = self.relu2(out)
-#        out = self.linear3(out)
-#        out = self.relu3(out)
-#        out = self.linear4(out)
-#        return out
 
     def forward(self, state):
-        #print(state.shape)
-        out = self.conv1(state)
-        #out = self.pool1(out)
-        out = self.relu1(out)
-        out = self.conv2(out)
-        #out = self.pool2(out)
-        out = self.relu2(out)
-        out = self.conv3(out)
-        #out = self.pool3(out)
-        out = self.relu3(out)
-        #print(out.shape)
-        #print(state.shape)
-        #input()
-        #print(out.shape)
-        out = out.view(state.shape[0], -1)
-        #print(out.shape)
-        #input()
-        #print("MODEL", out.shape, action.shape)
-        #out = torch.cat((out, action), dim=1)
-        out = self.linear1(out)
-        out = self.relu4(out)
+        out = F.relu(self.conv1(state))
+        out = F.relu(self.conv2(out))
+        out = F.relu(self.conv3(out))
+        out = out.view(out.shape[0], -1)
+        out = F.relu(self.linear1(out))
         out = self.linear2(out)
-#        out = self.relu5(out)
-#        out = self.linear3(out)
-#        out = self.relu6(out)
-#        out = self.linear4(out)
         return out
 
 if __name__ == "__main__":
-    if is_eval_mode:
+    args = parser.parse_args()
+
+    eps = eps_initial
+    if args.eval:
+        print("Eval mode")
         eps = 0.1
         minibatch_size = 1
         replay_buffer_len = 1000
@@ -193,20 +135,20 @@ if __name__ == "__main__":
 
     os.environ["DISPLAY"] = ":0"
 
-    env = gym.make("BreakoutNoFrameskip-v4")
-    #env = AtariEnvWrapper(env)
+    env = gym.make("PongNoFrameskip-v4")
     replay_buffer = ReplayBuffer(replay_buffer_len, 84)
-    #recent_states = torch.zeros(num_recent_states, 84, 84, dtype=torch.float)
     target_network = QModel(env)
     cur_network = QModel(env)
     cur_network.to(get_device())
     target_network.to(get_device())
     criterion = nn.MSELoss()
     #opt = optim.SGD(cur_network.parameters(), lr=1e-4)
-    opt = optim.Adam(cur_network.parameters(), lr=1e-4)
+    #opt = optim.Adam(cur_network.parameters(), lr=1e-4)
+    opt = optim.RMSprop(cur_network.parameters(), lr=0.00025,
+        momentum=0.95, eps=0.01, alpha=0.95)
     steps = 0
 
-    if os.path.exists("atari-weights.pt"):
+    if args.eval and os.path.exists("atari-weights.pt"):
         print("Using saved weights from atari-weights.pt")
         d = torch.load("atari-weights.pt", map_location=get_device())
         try:
@@ -219,6 +161,7 @@ if __name__ == "__main__":
         state_tensor = state_to_tensor(state)
         replay_buffer.add_img(state_tensor)
         assert(torch.max(state_tensor) > 0)
+        total_reward = 0
     else:
         # populate replay buffer
         print("Fresh network")
@@ -226,26 +169,27 @@ if __name__ == "__main__":
             replay_start_size))
         state = env.reset()
         replay_buffer.add_img(state_to_tensor(state))
+        total_reward = 0
         for i in range(replay_start_size):
             if i % 1000 == 0:
                 print("{} steps".format(i))
-            if should_render:
+            if args.render:
                 env.render()
             action = env.action_space.sample()
             reward = 0
             for j in range(action_repeat_steps):
                 result_state, r, done, info = env.step(action)
                 reward += r
+                total_reward += r
                 if done:
                     result_state = env.reset()
+                    total_reward = 0
                     break
             result_state = state_to_tensor(result_state)
             replay_buffer.add_obs(action, result_state, reward, done)
         print("Begin training")
 
-    with open("atari-log.txt", "a") as f:
-        f.write("\n")
-    #open("atari-log.txt", "w").close()
+    open("atari-log.txt", "w").close()
 
     episode_n = 0
 
@@ -255,23 +199,16 @@ if __name__ == "__main__":
         #replay_buffer.add_img(state_to_tensor(state))
 
         done = False
-        total_reward = 0
         running_loss = 0.0
         while not done:
-            if should_render:
+            if args.render:
                 env.render()
-
-            #recent_states.append(state)
-            #recent_states = recent_states[-num_recent_states:]
-            #recent_states = torch.cat((recent_states[1:],
-            #    state_to_tensor(state)), dim=0)
 
             # take some action
             if random.random() < eps:
                 action = env.action_space.sample()
             else:
                 state_v = replay_buffer.get_recent_states().unsqueeze(0)
-                #recent_states.unsqueeze(0)
 
                 pred = cur_network(state_v)
                 
@@ -289,64 +226,51 @@ if __name__ == "__main__":
             total_reward += reward
             env_result_state = result_state
             env_done = done
-            #result_state = recent_states_to_tensor(
-            #    recent_states[-num_recent_states+1:] + [result_state])
-            #result_state = torch.cat((recent_states[1:],
-            #    state_to_tensor(result_state)), dim=0)
+
             result_state = state_to_tensor(result_state)
             replay_buffer.add_obs(action, result_state, reward, done)
-            #replay_buffer = replay_buffer[-1000000:]
 
-            # sample from minibatch
-            #minibatch = random.choices(replay_buffer, k=minibatch_size)
-            minibatch = replay_buffer.sample(minibatch_size)
+            if not args.eval and steps % learning_freq == 0:
+                # sample from minibatch
+                minibatch = replay_buffer.sample(minibatch_size)
 
-            # compute "training pts"
-            with torch.no_grad():
-                states, actions, result_states, rewards, dones = minibatch
-                    #for j in range(21):
-                    #    for i in range(4):
-                    #        for k in range(21):
-                    #            c = "*" if torch.max(
-                    #                states[-1][0][i][j*4:j*4+4,k*4:k*4+4]
-                    #                ) >= 0.5 else " "
-                    #            print(c, end="")
-                    #        print("    ", end="")
-                    #    print()
-                    #input()
-                ys = rewards
+                # compute "training pts"
+                with torch.no_grad():
+                    states, actions, result_states, rewards, dones = minibatch
+                    ys = rewards.to(get_device())
+                    actions = actions.to(get_device())
 
-                qs = target_network(result_states).max(dim=1)[0]
-                #print(target_network(result_states))
-                #print(target_network.linear1.weight)
-                
-                ys += gamma * qs * (1.0-dones)
-                #print(ys)
-                #input()
+                    qs = target_network(result_states).max(dim=1)[0]
 
-            # update current network
-            cur_network.zero_grad()
-            pred = torch.gather(cur_network(states), 1, actions.view(-1, 1))
-            pred = pred.view(1, -1)
-            ys = ys.unsqueeze(0)
-            loss = criterion(pred, ys)
-            loss.backward()
-                #if loss < 10000:
-            running_loss += loss.item()
-#                else:
-#                    print("WARNING: loss is {:.4f}".format(loss.item()))
-            opt.step()
+                    dones = dones.to(get_device())
+                    
+                    ys += gamma * qs * (1.0-dones)
+
+                # update current network
+                cur_network.zero_grad()
+                pred = torch.gather(cur_network(states), 1,
+                    actions.view(-1, 1))
+                pred = pred.view(1, -1)
+                ys = ys.unsqueeze(0)
+                loss = criterion(pred, ys)
+                loss.data.clamp_(0, 1)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(cur_network.parameters(),
+                    grad_clip)
+                running_loss += loss.item()
+                opt.step()
 
             state = env_result_state
             done = env_done
             steps += 1
 
+            if eps > eps_final:
+                p = steps / explore_final_frame
+                eps = eps_initial + p*(eps_final - eps_initial)
+
             # update target network regularly
             if steps % target_network_update_dur == 0:
                 target_network.load_state_dict(cur_network.state_dict())
-
-        if eps > 0.1:
-            eps *= eps_decay
 
         # update stats from the episode
         print("Episode {}. Total reward: {}. Loss: {:.4f}. Eps: {:.4f}. "
@@ -355,6 +279,10 @@ if __name__ == "__main__":
         with open("atari-log.txt", "a") as f:
             f.write("{} {}\n".format(total_reward, running_loss))
 
-        # save weights from episode
-        torch.save(cur_network.state_dict(), "atari-weights.pt")
+        if not args.eval:
+            # save weights from episode
+            torch.save(cur_network.state_dict(), "atari-weights.pt")
+
+        total_reward = 0
     env.close()
+
