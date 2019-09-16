@@ -128,7 +128,7 @@ if __name__ == "__main__":
     eps = eps_initial
     if args.eval:
         print("Eval mode")
-        eps = 0.1
+        eps = 0.01
         minibatch_size = 1
         replay_buffer_len = 1000
         replay_start_size = 0
@@ -143,9 +143,9 @@ if __name__ == "__main__":
     target_network.to(get_device())
     criterion = nn.MSELoss()
     #opt = optim.SGD(cur_network.parameters(), lr=1e-4)
-    #opt = optim.Adam(cur_network.parameters(), lr=1e-4)
-    opt = optim.RMSprop(cur_network.parameters(), lr=0.00025,
-        momentum=0.95, eps=0.01, alpha=0.95)
+    opt = optim.Adam(cur_network.parameters(), lr=1e-4, eps=1e-4)
+    #opt = optim.RMSprop(cur_network.parameters(), lr=0.00025,
+    #    momentum=0.95, eps=0.01, alpha=0.95)
     steps = 0
 
     if args.eval and os.path.exists("atari-weights.pt"):
