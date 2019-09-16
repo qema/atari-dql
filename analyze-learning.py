@@ -16,4 +16,4 @@ with open("atari-log.txt", "r") as f:
     plt.plot(range(n_bins), rewards_binned)
     plt.xlabel("Epoch")
     plt.ylabel("Reward")
-    plt.savefig("reward-over-time.png")
+    plt.savefig("reward-over-time.png", bbox_inches="tight")
