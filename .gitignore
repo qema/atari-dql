@@ -1,3 +1,4 @@
 *.pt
 __pycache__/
+video/
 atari-log.txt

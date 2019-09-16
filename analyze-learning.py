@@ -14,4 +14,6 @@ with open("atari-log.txt", "r") as f:
     rewards_binned = [np.mean(rewards[i*bin_size:(i+1)*bin_size])
         for i in range(n_bins)]
     plt.plot(range(n_bins), rewards_binned)
+    plt.xlabel("Episode")
+    plt.ylabel("Reward")
     plt.savefig("reward-over-time.png")

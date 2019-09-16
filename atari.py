@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import gym
+from gym import wrappers
 import os
 import random
 import argparse
@@ -11,6 +12,7 @@ from settings import *
 parser = argparse.ArgumentParser(description="Train atari nn with RL")
 parser.add_argument("--eval", action="store_true")
 parser.add_argument("--render", action="store_true")
+parser.add_argument("--record_video", action="store_true")
 
 get_device_cache = None
 def get_device():
@@ -136,6 +138,8 @@ if __name__ == "__main__":
     os.environ["DISPLAY"] = ":0"
 
     env = gym.make("PongNoFrameskip-v4")
+    if args.record_video:
+        env = wrappers.Monitor(env, "./video", force=True)
     replay_buffer = ReplayBuffer(replay_buffer_len, 84)
     target_network = QModel(env)
     cur_network = QModel(env)
@@ -189,7 +193,8 @@ if __name__ == "__main__":
             replay_buffer.add_obs(action, result_state, reward, done)
         print("Begin training")
 
-    open("atari-log.txt", "w").close()
+    if not args.eval:
+        open("atari-log.txt", "w").close()
 
     episode_n = 0
 
@@ -276,10 +281,10 @@ if __name__ == "__main__":
         print("Episode {}. Total reward: {}. Loss: {:.4f}. Eps: {:.4f}. "
             "Steps: {}".format(
             episode_n, total_reward, running_loss, eps, steps))
-        with open("atari-log.txt", "a") as f:
-            f.write("{} {}\n".format(total_reward, running_loss))
-
         if not args.eval:
+            # add to log
+            with open("atari-log.txt", "a") as f:
+                f.write("{} {}\n".format(total_reward, running_loss))
             # save weights from episode
             torch.save(cur_network.state_dict(), "atari-weights.pt")
 
