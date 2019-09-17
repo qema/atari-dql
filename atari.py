@@ -137,7 +137,7 @@ if __name__ == "__main__":
 
     os.environ["DISPLAY"] = ":0"
 
-    env = gym.make("PongNoFrameskip-v4")
+    env = gym.make("BreakoutNoFrameskip-v4")
     if args.record_video:
         env = wrappers.Monitor(env, "./video", force=True)
     replay_buffer = ReplayBuffer(replay_buffer_len, 84)
